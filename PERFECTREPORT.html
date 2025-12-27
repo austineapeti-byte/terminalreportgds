@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>God's Dunamis - System V6 (Batch Print)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- SheetJS for Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Roboto:wght@400;700&display=swap');
+
+        :root {
+            --bg-dark: #050505;
+            --bg-panel: #111;
+            --text-main: #e5e5e5;
+            --neon-green: #22c55e;
+            --neon-dim: rgba(34, 197, 94, 0.1);
+        }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            overflow: hidden;
+        }
+
+        /* --- TERMINAL UI --- */
+        .terminal-text { color: var(--neon-green); text-shadow: 0 0 4px var(--neon-dim); }
+        .terminal-input {
+            background: #000;
+            border: 1px solid #333;
+            color: var(--neon-green);
+            padding: 10px;
+            width: 100%;
+            outline: none;
+            font-family: inherit;
+            transition: 0.3s;
+        }
+        .terminal-input:focus { border-color: var(--neon-green); box-shadow: 0 0 8px var(--neon-dim); }
+        .terminal-input::file-selector-button {
+            background: #222;
+            color: var(--neon-green);
+            border: 1px solid #333;
+            padding: 5px 10px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        
+        .btn {
+            background: #0a0a0a;
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+            padding: 8px 16px;
+            cursor: pointer;
+            transition: 0.2s;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+        .btn:hover { background: var(--neon-green); color: black; }
+        .btn-danger { border-color: #ef4444; color: #ef4444; }
+        .btn-danger:hover { background: #ef4444; color: white; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+        /* --- PRINT STYLES --- */
+        @media print {
+            body { 
+                background: white; 
+                color: black; 
+                overflow: visible; 
+                font-family: 'Roboto', sans-serif; 
+                height: auto;
+            }
+            .no-print { display: none !important; }
+            #app-container { display: none !important; }
+            
+            #print-stage { 
+                display: block !important; 
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                margin: 0;
+                padding: 0;
+            }
+
+            /* Page Break Logic */
+            .report-card-page {
+                page-break-after: always;
+                break-after: page;
+                width: 100%;
+                min-height: 100vh;
+                padding: 20px; /* Padding for print margin safety */
+                box-sizing: border-box;
+            }
+            .report-card-page:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #000 !important; padding: 5px; font-size: 11px; }
+            .print-serif { font-family: 'Playfair Display', serif; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="fixed inset-0 z-50 bg-black flex items-center justify-center flex-col">
+        <div class="w-full max-w-md p-8 border border-green-900 rounded bg-gray-900/40 shadow-2xl shadow-green-900/20 backdrop-blur-sm">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold terminal-text mb-2">GOD'S DUNAMIS OS</h1>
+                <p class="text-xs text-gray-500">School Management V6.0 (Batch Print)</p>
+            </div>
+            <form onsubmit="handleLogin(event)" class="space-y-6">
+                <div>
+                    <label class="block text-xs uppercase text-gray-500 mb-1">Username</label>
+                    <input type="text" id="login-user" class="terminal-input" placeholder="Enter ID" autofocus>
+                </div>
+                <div>
+                    <label class="block text-xs uppercase text-gray-500 mb-1">Password</label>
+                    <input type="password" id="login-pass" class="terminal-input" placeholder="••••••">
+                </div>
+                <button type="submit" class="btn w-full py-3">INITIALIZE SESSION</button>
+            </form>
+            <div id="login-msg" class="text-center mt-4 text-red-500 text-sm h-5 font-bold"></div>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="app-container" class="hidden flex h-screen w-screen">
+        
+        <!-- SIDEBAR -->
+        <aside class="w-64 bg-black border-r border-gray-800 flex flex-col no-print">
+            <div class="p-6 border-b border-gray-800">
+                <div class="terminal-text font-bold text-xl tracking-tighter"><i class="fas fa-server mr-2"></i>GD_SYSTEM</div>
+                <div class="text-xs text-gray-500 mt-2" id="user-display">User: ---</div>
+                <div class="text-xs text-gray-500" id="role-display">Role: ---</div>
+            </div>
+            <nav class="flex-1 py-4 space-y-1 overflow-y-auto" id="nav-menu">
+                <!-- Javascript populates this -->
+            </nav>
+            <div class="p-4 border-t border-gray-800">
+                <button onclick="logout()" class="btn btn-danger w-full">LOGOUT</button>
+            </div>
+        </aside>
+
+        <!-- CONTENT AREA -->
+        <main class="flex-1 bg-neutral-900 relative flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="h-16 border-b border-gray-800 bg-black flex justify-between items-center px-8 no-print">
+                <h2 id="page-title" class="terminal-text font-bold text-lg tracking-widest">DASHBOARD</h2>
+                <div id="clock" class="text-xs font-mono text-gray-500">00:00:00</div>
+            </header>
+
+            <!-- Views Container -->
+            <div id="viewport" class="flex-1 overflow-y-auto p-8 relative">
+                
+                <!-- 1. DASHBOARD -->
+                <div id="view-dashboard" class="view-section">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                        <div class="p-6 border border-gray-800 bg-black rounded">
+                            <div class="text-xs text-gray-500 uppercase">Total Students</div>
+                            <div class="text-4xl font-bold terminal-text mt-2" id="dash-students">0</div>
+                        </div>
+                        <div class="p-6 border border-gray-800 bg-black rounded">
+                            <div class="text-xs text-gray-500 uppercase">Classes</div>
+                            <div class="text-4xl font-bold terminal-text mt-2" id="dash-classes">0</div>
+                        </div>
+                        <div class="p-6 border border-gray-800 bg-black rounded">
+                            <div class="text-xs text-gray-500 uppercase">Subjects</div>
+                            <div class="text-4xl font-bold terminal-text mt-2" id="dash-subjects">0</div>
+                        </div>
+                    </div>
+                    <div class="bg-black border border-gray-800 p-4 font-mono text-xs text-gray-400 h-64 overflow-y-auto rounded" id="sys-log">
+                        <div class="text-green-600">> System Ready...</div>
+                    </div>
+                </div>
+
+                <!-- 2. ADMIN PANEL -->
+                <div id="view-admin" class="view-section hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        
+                        <!-- Excel Import -->
+                        <div class="bg-black border border-gray-800 p-6 rounded col-span-1 lg:col-span-2 border-l-4 border-l-green-600">
+                            <h3 class="terminal-text border-b border-gray-800 pb-2 mb-4 font-bold flex items-center">
+                                <i class="fas fa-file-excel mr-2"></i> BULK IMPORT STUDENTS (EXCEL)
+                            </h3>
+                            <div class="flex flex-col md:flex-row gap-4 items-center">
+                                <div class="flex-1 w-full">
+                                    <label class="text-xs text-gray-500 block mb-2">Upload .xlsx file</label>
+                                    <input type="file" id="excel-file" accept=".xlsx, .xls" class="terminal-input">
+                                    <p class="text-[10px] text-gray-500 mt-1">Headers required: <span class="text-white font-bold">Name</span> and <span class="text-white font-bold">Class</span></p>
+                                </div>
+                                <button onclick="importExcel()" class="btn h-fit whitespace-nowrap"><i class="fas fa-upload mr-2"></i> PROCESS IMPORT</button>
+                            </div>
+                            <div id="import-log" class="mt-2 text-xs text-green-500"></div>
+                        </div>
+
+                        <!-- School Config -->
+                        <div class="bg-black border border-gray-800 p-6 rounded">
+                            <h3 class="terminal-text border-b border-gray-800 pb-2 mb-4 font-bold">SCHOOL DETAILS</h3>
+                            <div class="space-y-3">
+                                <input id="cfg-logo" class="terminal-input" placeholder="Logo URL (Image Link)">
+                                <input id="cfg-address" class="terminal-input" placeholder="School Address">
+                                <input id="cfg-phone" class="terminal-input" placeholder="Phone Contact">
+                                <input id="cfg-email" class="terminal-input" placeholder="Email / Website">
+                            </div>
+                            <button onclick="saveSchoolConfig()" class="btn mt-4 w-full">UPDATE CONFIG</button>
+                        </div>
+
+                        <!-- Staff & Academics -->
+                        <div class="bg-black border border-gray-800 p-6 rounded">
+                            <h3 class="terminal-text border-b border-gray-800 pb-2 mb-4 font-bold">MANAGE STAFF & ACADEMICS</h3>
+                            
+                            <!-- Add Teacher -->
+                            <form onsubmit="addTeacher(event)" class="mb-6 pb-6 border-b border-gray-800">
+                                <label class="text-xs text-gray-500 mb-2 block">Create Teacher</label>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <input id="new-t-user" class="terminal-input" placeholder="User" required>
+                                    <input id="new-t-pass" type="password" class="terminal-input" placeholder="Pass" required>
+                                    <select id="new-t-class" class="terminal-input bg-black text-white"></select>
+                                </div>
+                                <button class="btn w-full mt-2 text-xs">ADD TEACHER</button>
+                            </form>
+
+                            <!-- Add Class/Subject -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <input id="new-class-name" class="terminal-input mb-1" placeholder="New Class">
+                                    <button onclick="addClass()" class="btn w-full text-xs">ADD CLASS</button>
+                                </div>
+                                <div>
+                                    <input id="new-subject-name" class="terminal-input mb-1" placeholder="New Subject">
+                                    <button onclick="addSubject()" class="btn w-full text-xs">ADD SUBJECT</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. STUDENT MANAGEMENT -->
+                <div id="view-students" class="view-section hidden">
+                    <div class="flex gap-8 flex-col lg:flex-row">
+                        <div class="w-full lg:w-1/3 bg-black border border-gray-800 p-6 h-fit rounded">
+                            <h3 class="terminal-text mb-4 font-bold">MANUAL REGISTRATION</h3>
+                            <form onsubmit="addStudent(event)" class="space-y-4">
+                                <input id="std-name" class="terminal-input" placeholder="Full Name" required>
+                                <select id="std-class" class="terminal-input bg-black text-white" required></select>
+                                <button class="btn w-full">ADD TO DATABASE</button>
+                            </form>
+                        </div>
+                        <div class="w-full lg:w-2/3 bg-black border border-gray-800 rounded overflow-hidden">
+                            <div class="bg-gray-900 p-2 text-xs text-gray-500 border-b border-gray-800 flex justify-between">
+                                <span>DATABASE RECORDS</span>
+                                <span id="std-count-badge">0 Students</span>
+                            </div>
+                            <div class="max-h-[600px] overflow-y-auto">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="bg-black text-gray-500 text-xs uppercase sticky top-0">
+                                        <tr>
+                                            <th class="p-4 border-b border-gray-800">ID</th>
+                                            <th class="p-4 border-b border-gray-800">Name</th>
+                                            <th class="p-4 border-b border-gray-800">Class</th>
+                                            <th class="p-4 border-b border-gray-800 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="table-students" class="text-gray-300"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. GRADING & ATTENDANCE -->
+                <div id="view-grading" class="view-section hidden">
+                    <div class="bg-black border border-gray-800 p-6 max-w-5xl mx-auto rounded">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="terminal-text text-xl font-bold">ACADEMIC & ATTENDANCE RECORD</h3>
+                            <div class="text-xs text-gray-500 border border-gray-700 px-2 py-1 rounded">Mode: <span id="grading-mode-class">All</span></div>
+                        </div>
+                        
+                        <!-- Selection Bar -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 pb-8 border-b border-gray-800">
+                            <div>
+                                <label class="text-xs text-gray-500 uppercase">Select Student</label>
+                                <select id="grade-student-select" class="terminal-input bg-black text-white mt-1" onchange="loadStudentData()"></select>
+                            </div>
+                            <div class="flex items-end text-xs text-gray-400 pb-2">
+                                <i class="fas fa-info-circle mr-2"></i> Loads student data automatically.
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            
+                            <!-- ATTENDANCE SECTION -->
+                            <div class="lg:col-span-1 border-r border-gray-800 pr-0 lg:pr-8">
+                                <h4 class="text-white font-bold mb-4 uppercase text-sm border-l-2 border-green-500 pl-2">Attendance</h4>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="text-xs text-gray-500">Days Present</label>
+                                        <input type="number" id="att-present" class="terminal-input" placeholder="0">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-gray-500">Total Days Opened</label>
+                                        <input type="number" id="att-total" class="terminal-input" placeholder="0">
+                                    </div>
+                                    <button onclick="saveAttendance()" class="btn w-full">SAVE ATTENDANCE</button>
+                                </div>
+                                <div id="att-msg" class="text-xs text-center mt-2 h-4 text-green-500"></div>
+                            </div>
+
+                            <!-- GRADING SECTION -->
+                            <div class="lg:col-span-2">
+                                <h4 class="text-white font-bold mb-4 uppercase text-sm border-l-2 border-green-500 pl-2">Subject Grading</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                    <select id="grade-subject-select" class="terminal-input bg-black text-white" onchange="loadGrade()"></select>
+                                    <button onclick="loadGrade()" class="btn">LOAD SUBJECT</button>
+                                </div>
+
+                                <div class="bg-gray-900/50 p-4 rounded border border-gray-800 mb-4">
+                                    <div class="grid grid-cols-2 gap-4 mb-4">
+                                        <div>
+                                            <label class="text-green-500 font-bold text-xs">CLASS SCORE (50%)</label>
+                                            <input type="number" id="score-class" class="terminal-input text-xl text-center" max="50" placeholder="-">
+                                        </div>
+                                        <div>
+                                            <label class="text-green-500 font-bold text-xs">EXAM SCORE (50%)</label>
+                                            <input type="number" id="score-exam" class="terminal-input text-xl text-center" max="50" placeholder="-">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-gray-500">Remarks (Leave empty for auto-remark)</label>
+                                        <input type="text" id="score-remark-manual" class="terminal-input">
+                                    </div>
+                                </div>
+                                <button onclick="saveGrade()" class="btn w-full py-3">SAVE GRADE</button>
+                                <div id="grade-msg" class="text-xs text-center mt-2 h-4 text-green-500"></div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. REPORTS & BATCH PRINT -->
+                <div id="view-reports" class="view-section hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        
+                        <!-- Single Student Report -->
+                        <div class="bg-black border border-gray-800 p-6 rounded h-fit">
+                            <h3 class="terminal-text mb-4 font-bold">SINGLE REPORT</h3>
+                            <label class="text-xs text-gray-500 mb-2 block">Select Student</label>
+                            <select id="report-student-select" class="terminal-input bg-black text-white mb-4"></select>
+                            <button onclick="printSingleReport()" class="btn w-full">PREVIEW STUDENT REPORT</button>
+                        </div>
+
+                        <!-- Batch Class Report -->
+                        <div class="bg-black border border-gray-800 p-6 rounded h-fit border-l-4 border-l-green-600">
+                            <h3 class="terminal-text mb-4 font-bold flex items-center"><i class="fas fa-layer-group mr-2"></i> BATCH PRINT CLASS</h3>
+                            <p class="text-xs text-gray-500 mb-4">Generates a multi-page PDF with report cards for every student in the selected class.</p>
+                            <label class="text-xs text-gray-500 mb-2 block">Select Target Class</label>
+                            <select id="batch-class-select" class="terminal-input bg-black text-white mb-4"></select>
+                            <button onclick="printBatchReport()" class="btn w-full"><i class="fas fa-print mr-2"></i> GENERATE ALL & PRINT</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- PRINT STAGE (Hidden on Screen, Visible on Print) -->
+    <div id="print-stage" class="hidden">
+        <!-- Dynamic Content Injected Here -->
+    </div>
+
+    <script>
+        // --- DATA STRUCTURE ---
+        const DEFAULT_DB = {
+            config: {
+                logo: '',
+                address: 'P.O. Box 123, Accra, Ghana',
+                phone: '+233 555 000 111',
+                email: 'info@godsdunamis.com'
+            },
+            users: [
+                { user: 'admin', pass: '123', role: 'admin', assignedClass: null },
+                { user: 'teacher1', pass: '123', role: 'teacher', assignedClass: 'Grade 5' }
+            ],
+            classes: ['Grade 4', 'Grade 5', 'Grade 6', 'JHS 1'],
+            subjects: ['Mathematics', 'English', 'Science', 'Social Studies', 'ICT'],
+            students: [
+                { id: 'GD001', name: 'Emmanuel Mensah', class: 'Grade 5' },
+                { id: 'GD002', name: 'Sarah Osei', class: 'Grade 5' },
+            ],
+            grades: {},
+            attendance: {},
+            gradingScheme: [
+                { min: 80, max: 100, gr: 'A', rem: 'Excellent' },
+                { min: 70, max: 79, gr: 'B', rem: 'Very Good' },
+                { min: 60, max: 69, gr: 'C', rem: 'Good' },
+                { min: 50, max: 59, gr: 'D', rem: 'Credit' },
+                { min: 0, max: 49, gr: 'F', rem: 'Fail' }
+            ]
+        };
+
+        let db = JSON.parse(localStorage.getItem('gd_school_db_v6')) || DEFAULT_DB;
+        let currentUser = null;
+
+        // --- AUTH ---
+        function handleLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById('login-user').value;
+            const p = document.getElementById('login-pass').value;
+            const user = db.users.find(x => x.user === u && x.pass === p);
+            
+            if (user) {
+                currentUser = user;
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('app-container').classList.remove('hidden');
+                initApp();
+            } else {
+                document.getElementById('login-msg').innerText = "ACCESS DENIED";
+            }
+        }
+
+        function logout() { location.reload(); }
+
+        // --- CORE LOGIC ---
+        function initApp() {
+            document.getElementById('user-display').innerText = `User: ${currentUser.user}`;
+            document.getElementById('role-display').innerText = `Role: ${currentUser.role.toUpperCase()} ${currentUser.assignedClass || ''}`;
+            
+            const nav = document.getElementById('nav-menu');
+            let html = `<button onclick="nav('dashboard')" class="w-full text-left px-6 py-3 hover:bg-gray-800 text-gray-400 hover:text-white border-l-2 border-transparent hover:border-green-500">> Dashboard</button>`;
+            
+            if (currentUser.role === 'admin') {
+                html += `<button onclick="nav('admin')" class="w-full text-left px-6 py-3 hover:bg-gray-800 text-gray-400 hover:text-white border-l-2 border-transparent hover:border-green-500">> Admin Panel</button>`;
+            }
+            
+            html += `
+                <button onclick="nav('students')" class="w-full text-left px-6 py-3 hover:bg-gray-800 text-gray-400 hover:text-white border-l-2 border-transparent hover:border-green-500">> Students</button>
+                <button onclick="nav('grading')" class="w-full text-left px-6 py-3 hover:bg-gray-800 text-gray-400 hover:text-white border-l-2 border-transparent hover:border-green-500">> Grade & Attend</button>
+                <button onclick="nav('reports')" class="w-full text-left px-6 py-3 hover:bg-gray-800 text-gray-400 hover:text-white border-l-2 border-transparent hover:border-green-500">> Reports</button>
+            `;
+            nav.innerHTML = html;
+
+            setInterval(() => document.getElementById('clock').innerText = new Date().toLocaleTimeString(), 1000);
+            nav('dashboard');
+        }
+
+        function saveDb() {
+            localStorage.setItem('gd_school_db_v6', JSON.stringify(db));
+        }
+
+        function nav(viewId) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+            document.getElementById('view-' + viewId).classList.remove('hidden');
+            document.getElementById('page-title').innerText = viewId.toUpperCase();
+            refreshData(viewId);
+        }
+
+        function getVisibleStudents() {
+            return currentUser.role === 'admin' 
+                ? db.students 
+                : db.students.filter(s => s.class === currentUser.assignedClass);
+        }
+        
+        function getVisibleClasses() {
+            return currentUser.role === 'admin' 
+                ? db.classes 
+                : (currentUser.assignedClass ? [currentUser.assignedClass] : []);
+        }
+
+        function refreshData(view) {
+            const students = getVisibleStudents();
+
+            if (view === 'dashboard') {
+                document.getElementById('dash-students').innerText = students.length;
+                document.getElementById('dash-classes').innerText = currentUser.role === 'admin' ? db.classes.length : 1;
+                document.getElementById('dash-subjects').innerText = db.subjects.length;
+            }
+
+            if (view === 'admin') {
+                document.getElementById('list-classes').innerHTML = db.classes.map(c => `<li>${c}</li>`).join('');
+                document.getElementById('list-subjects').innerHTML = db.subjects.map(s => `<li>${s}</li>`).join('');
+                document.getElementById('cfg-logo').value = db.config.logo || '';
+                document.getElementById('cfg-address').value = db.config.address || '';
+                document.getElementById('cfg-phone').value = db.config.phone || '';
+                document.getElementById('cfg-email').value = db.config.email || '';
+                const clsOpts = db.classes.map(c => `<option value="${c}">${c}</option>`).join('');
+                document.getElementById('new-t-class').innerHTML = `<option value="">-- Assign Class --</option>${clsOpts}`;
+            }
+
+            if (view === 'students') {
+                document.getElementById('std-count-badge').innerText = `${students.length} Records`;
+                const clsOpts = getVisibleClasses().map(c => `<option value="${c}">${c}</option>`).join('');
+                document.getElementById('std-class').innerHTML = clsOpts;
+                const tbody = document.getElementById('table-students');
+                if(students.length === 0) tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-600">No records found.</td></tr>`;
+                else tbody.innerHTML = students.map(s => `
+                    <tr class="border-b border-gray-800 hover:bg-gray-800">
+                        <td class="p-4 font-mono text-gray-500">${s.id}</td>
+                        <td class="p-4 font-bold text-white">${s.name}</td>
+                        <td class="p-4 text-green-500">${s.class}</td>
+                        <td class="p-4 text-right"><button onclick="removeStudent('${s.id}')" class="text-red-500 hover:text-white px-2 py-1 text-xs border border-gray-700 hover:border-red-500">DEL</button></td>
+                    </tr>
+                `).join('');
+            }
+
+            if (view === 'grading' || view === 'reports') {
+                const stdSel = document.getElementById('grade-student-select');
+                const rptStdSel = document.getElementById('report-student-select');
+                const batchClsSel = document.getElementById('batch-class-select');
+
+                const stdOpts = `<option value="">-- Select Student --</option>` + students.map(s => `<option value="${s.id}">${s.name} [${s.class}]</option>`).join('');
+                
+                if(stdSel) stdSel.innerHTML = stdOpts;
+                if(rptStdSel) rptStdSel.innerHTML = stdOpts;
+
+                if(batchClsSel) {
+                    batchClsSel.innerHTML = `<option value="">-- Select Class --</option>` + getVisibleClasses().map(c => `<option value="${c}">${c}</option>`).join('');
+                }
+
+                if(view === 'grading') {
+                    document.getElementById('grading-mode-class').innerText = currentUser.role === 'admin' ? "Admin Mode" : currentUser.assignedClass;
+                    document.getElementById('grade-subject-select').innerHTML = `<option value="">-- Select Subject --</option>` + db.subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+                }
+            }
+        }
+
+        // --- EXCEL IMPORT LOGIC ---
+        function importExcel() {
+            const fileInput = document.getElementById('excel-file');
+            const log = document.getElementById('import-log');
+            if(!fileInput.files.length) return;
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+
+                    let count = 0;
+                    jsonData.forEach(row => {
+                        const name = row['Name'] || row['name'];
+                        const cls = row['Class'] || row['class'];
+                        if(name && cls) {
+                            if(!db.classes.includes(cls)) db.classes.push(cls);
+                            const id = 'GD' + Date.now().toString().slice(-4) + Math.floor(Math.random()*100);
+                            db.students.push({ id, name, class: cls });
+                            count++;
+                        }
+                    });
+
+                    saveDb();
+                    refreshData('admin');
+                    log.innerText = `Success: Imported ${count} students.`;
+                    log.className = "mt-2 text-xs text-green-500";
+                    fileInput.value = ""; 
+
+                } catch(err) {
+                    console.error(err);
+                    log.innerText = "Error: Failed. Check file format.";
+                    log.className = "mt-2 text-xs text-red-500";
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- ADMIN FUNCTIONS ---
+        function saveSchoolConfig() {
+            db.config.logo = document.getElementById('cfg-logo').value.trim();
+            db.config.address = document.getElementById('cfg-address').value.trim();
+            db.config.phone = document.getElementById('cfg-phone').value.trim();
+            db.config.email = document.getElementById('cfg-email').value.trim();
+            saveDb();
+            alert("Configuration Updated!");
+        }
+
+        function addClass() {
+            const v = document.getElementById('new-class-name').value.trim();
+            if(v && !db.classes.includes(v)) { db.classes.push(v); saveDb(); refreshData('admin'); }
+        }
+        function addSubject() {
+            const v = document.getElementById('new-subject-name').value.trim();
+            if(v && !db.subjects.includes(v)) { db.subjects.push(v); saveDb(); refreshData('admin'); }
+        }
+        function addTeacher(e) {
+            e.preventDefault();
+            const u = document.getElementById('new-t-user').value.trim();
+            const p = document.getElementById('new-t-pass').value.trim();
+            const c = document.getElementById('new-t-class').value;
+            if(u && p && c) {
+                db.users.push({ user: u, pass: p, role: 'teacher', assignedClass: c });
+                alert("Teacher Created");
+                saveDb();
+                e.target.reset();
+            }
+        }
+
+        // --- STUDENT FUNCTIONS ---
+        function addStudent(e) {
+            e.preventDefault();
+            const n = document.getElementById('std-name').value.trim();
+            const c = document.getElementById('std-class').value;
+            const id = 'GD' + Date.now().toString().slice(-4);
+            db.students.push({ id, name: n, class: c });
+            saveDb();
+            document.getElementById('std-name').value = '';
+            refreshData('students');
+        }
+        function removeStudent(id) {
+            if(confirm("Delete student?")) {
+                db.students = db.students.filter(s => s.id !== id);
+                delete db.grades[id];
+                delete db.attendance[id];
+                saveDb();
+                refreshData('students');
+            }
+        }
+
+        // --- GRADING ---
+        function loadStudentData() {
+            const sid = document.getElementById('grade-student-select').value;
+            if(!sid) return;
+            const att = db.attendance[sid] || { present: '', total: '' };
+            document.getElementById('att-present').value = att.present;
+            document.getElementById('att-total').value = att.total;
+            loadGrade(); // reset grade inputs
+        }
+        function saveAttendance() {
+            const sid = document.getElementById('grade-student-select').value;
+            const p = document.getElementById('att-present').value;
+            const t = document.getElementById('att-total').value;
+            if(!sid) return alert("Select student first");
+            db.attendance[sid] = { present: p, total: t };
+            saveDb();
+            const msg = document.getElementById('att-msg');
+            msg.innerText = "ATTENDANCE SAVED";
+            setTimeout(() => msg.innerText = '', 2000);
+        }
+        function loadGrade() {
+            const sid = document.getElementById('grade-student-select').value;
+            const sub = document.getElementById('grade-subject-select').value;
+            const cInput = document.getElementById('score-class');
+            const eInput = document.getElementById('score-exam');
+            const rInput = document.getElementById('score-remark-manual');
+            
+            if(!sid || !sub) {
+                cInput.value = ''; eInput.value = ''; rInput.value = '';
+                return;
+            }
+            const rec = db.grades[sid]?.[sub] || { class: '', exam: '', remark: '' };
+            cInput.value = rec.class;
+            eInput.value = rec.exam;
+            rInput.value = rec.remark || '';
+        }
+        function saveGrade() {
+            const sid = document.getElementById('grade-student-select').value;
+            const sub = document.getElementById('grade-subject-select').value;
+            const c = parseFloat(document.getElementById('score-class').value);
+            const e = parseFloat(document.getElementById('score-exam').value);
+            const r = document.getElementById('score-remark-manual').value.trim();
+            if(!sid || !sub) return alert("Select Student & Subject");
+            if(c > 50 || e > 50) return alert("Max score is 50");
+            if(!db.grades[sid]) db.grades[sid] = {};
+            db.grades[sid][sub] = { class: c || 0, exam: e || 0, remark: r };
+            saveDb();
+            const msg = document.getElementById('grade-msg');
+            msg.innerText = "GRADE SAVED";
+            setTimeout(() => msg.innerText = '', 2000);
+        }
+
+        // --- REPORT GENERATION ENGINE (CORE) ---
+        function getPos(sid, sub, cls) {
+            const studentsInClass = db.students.filter(s => s.class === cls);
+            const totals = studentsInClass.map(s => {
+                const r = db.grades[s.id]?.[sub];
+                return { id: s.id, t: r ? r.class + r.exam : -1 };
+            }).sort((a,b) => b.t - a.t);
+            const idx = totals.findIndex(x => x.id === sid);
+            const val = totals[idx].t;
+            if(val === -1) return '-';
+            const p = idx + 1;
+            const s = ["th","st","nd","rd"], v = p%100;
+            return p + (s[(v-20)%10] || s[v] || s[0]);
+        }
+
+        function generateReportHTML(student) {
+            const grades = db.grades[student.id] || {};
+            const att = db.attendance[student.id] || { present: '-', total: '-' };
+            const subs = Object.keys(grades).sort();
+            const dateStr = new Date().toLocaleDateString();
+
+            let rows = '';
+            let gt = 0, count = 0;
+
+            if(subs.length === 0) {
+                rows = `<tr><td colspan="7" class="text-center p-4">No academic data available.</td></tr>`;
+            } else {
+                subs.forEach(sub => {
+                    const r = grades[sub];
+                    const tot = r.class + r.exam;
+                    gt += tot; count++;
+                    const rule = db.gradingScheme.find(x => tot >= x.min && tot <= x.max) || { gr: 'F', rem: 'Fail' };
+                    const rem = r.remark || rule.rem;
+                    const pos = getPos(student.id, sub, student.class);
+
+                    rows += `
+                        <tr>
+                            <td class="p-2 border border-black font-bold uppercase">${sub}</td>
+                            <td class="p-2 border border-black text-center">${r.class}</td>
+                            <td class="p-2 border border-black text-center">${r.exam}</td>
+                            <td class="p-2 border border-black text-center font-bold bg-gray-100">${tot}</td>
+                            <td class="p-2 border border-black text-center italic">${pos}</td>
+                            <td class="p-2 border border-black text-center font-bold">${rule.gr}</td>
+                            <td class="p-2 border border-black text-xs">${rem}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            const avg = count > 0 ? (gt/count).toFixed(1) + "%" : "0%";
+            const logoDisplay = db.config.logo ? `block` : `none`;
+
+            return `
+                <div class="report-card-page bg-white text-black p-10 font-sans relative">
+                    <!-- Header -->
+                    <div class="flex items-center border-b-4 border-double border-black pb-4 mb-6">
+                        <div class="w-1/5">
+                            <img src="${db.config.logo}" alt="Logo" class="w-24 h-24 object-contain mx-auto" style="display:${logoDisplay}" onerror="this.style.display='none'">
+                        </div>
+                        <div class="w-3/5 text-center">
+                            <h1 class="text-4xl print-serif font-black uppercase tracking-wider">God's Dunamis School</h1>
+                            <p class="text-xs font-bold uppercase tracking-widest mt-1">"Knowledge, Integrity & Power"</p>
+                            <p class="text-sm mt-2 font-bold">${db.config.address}</p>
+                            <p class="text-sm">${db.config.phone} | ${db.config.email}</p>
+                        </div>
+                        <div class="w-1/5 flex justify-end">
+                            <div class="bg-black text-white px-4 py-2 text-center">
+                                <div class="text-[10px] uppercase">Report Type</div>
+                                <div class="font-bold">TERMINAL</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Info -->
+                    <div class="flex justify-between mb-6 border border-black p-4 text-sm font-sans">
+                        <div class="space-y-1 w-1/3">
+                            <p><span class="font-bold w-20 inline-block">NAME:</span> <span class="uppercase">${student.name}</span></p>
+                            <p><span class="font-bold w-20 inline-block">ID:</span> <span>${student.id}</span></p>
+                            <p><span class="font-bold w-20 inline-block">CLASS:</span> <span>${student.class}</span></p>
+                        </div>
+                        <div class="w-1/3 text-center border-x border-black px-4">
+                            <p class="font-bold border-b border-black mb-1">ATTENDANCE</p>
+                            <div class="flex justify-between px-4">
+                                <div class="text-center">
+                                    <span class="block text-xl font-bold">${att.present}</span>
+                                    <span class="text-[10px] uppercase">Present</span>
+                                </div>
+                                <div class="text-center">
+                                    <span class="block text-xl font-bold">${att.total}</span>
+                                    <span class="text-[10px] uppercase">Opened</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="space-y-1 w-1/3 text-right">
+                            <p><span class="font-bold">DATE:</span> <span>${dateStr}</span></p>
+                            <p><span class="font-bold">NEXT TERM:</span> <span>TBA</span></p>
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <table class="w-full text-sm mb-6 border-collapse border border-black font-sans">
+                        <thead>
+                            <tr class="bg-gray-100">
+                                <th class="border border-black p-2 text-left w-1/3 uppercase">Subject</th>
+                                <th class="border border-black p-2 text-center w-16">Class<br>(50%)</th>
+                                <th class="border border-black p-2 text-center w-16">Exam<br>(50%)</th>
+                                <th class="border border-black p-2 text-center w-16 bg-gray-200">Total<br>(100%)</th>
+                                <th class="border border-black p-2 text-center w-12">Pos.</th>
+                                <th class="border border-black p-2 text-center w-12">Grd</th>
+                                <th class="border border-black p-2 text-left">Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                        <tfoot>
+                            <tr class="bg-gray-50 font-bold">
+                                <td class="border border-black p-2 text-right" colspan="3">SUMMARY:</td>
+                                <td class="border border-black p-2 text-center">${gt}</td>
+                                <td class="border border-black p-2" colspan="3">Avg: ${avg}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+
+                    <!-- Footer -->
+                    <div class="grid grid-cols-2 gap-20 mt-16 font-serif text-sm">
+                        <div class="text-center">
+                            <div class="border-b border-black mb-2"></div>
+                            <p class="font-bold uppercase text-xs">Class Teacher</p>
+                        </div>
+                        <div class="text-center">
+                            <div class="border-b border-black mb-2"></div>
+                            <p class="font-bold uppercase text-xs">Principal / Head Teacher</p>
+                        </div>
+                    </div>
+                    
+                    <div class="absolute bottom-10 w-full text-center text-[10px] text-gray-400 font-sans left-0">
+                        Generated by God's Dunamis System | ${db.config.email}
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- PRINT ACTIONS ---
+        function printSingleReport() {
+            const sid = document.getElementById('report-student-select').value;
+            if(!sid) return alert("Select Student");
+            
+            const student = db.students.find(x => x.id === sid);
+            const html = generateReportHTML(student);
+            
+            const stage = document.getElementById('print-stage');
+            stage.innerHTML = html;
+            
+            // Trigger print
+            window.print();
+        }
+
+        function printBatchReport() {
+            const cls = document.getElementById('batch-class-select').value;
+            if(!cls) return alert("Select a Class to print");
+
+            const students = db.students.filter(s => s.class === cls);
+            if(students.length === 0) return alert("No students found in this class.");
+
+            let allHtml = '';
+            students.forEach(s => {
+                allHtml += generateReportHTML(s);
+            });
+
+            const stage = document.getElementById('print-stage');
+            stage.innerHTML = allHtml;
+
+            // Trigger print
+            window.print();
+        }
+
+    </script>
+</body>
+</html>
